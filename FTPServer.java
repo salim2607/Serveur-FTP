@@ -55,7 +55,7 @@ public class FTPServer {
             }
         }
     }
-
+   // authontification 
     private static boolean authenticateUser(Scanner scanner, OutputStream output) throws IOException {
         String username = null;
         while (true) {

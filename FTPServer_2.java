@@ -13,7 +13,7 @@ public class FTPServer_2 {
     }
 
     public static void main(String[] args) {
-        int port = 2121; // Numéro de port du serveur FTP (peut être changé en 21 si nécessaire)
+        int port = 2121; // Numéro de port du serveur FTP 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             System.out.println("Serveur FTP démarré sur le port " + port);
             while (true) {
