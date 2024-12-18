@@ -28,20 +28,50 @@ public class FTPServer {
     }
 
     private static void handleClient(Socket clientSocket) {
-        try (InputStream input = clientSocket.getInputStream(); 
-             OutputStream output = clientSocket.getOutputStream(); 
-             Scanner scanner = new Scanner(input)) {
-
+        try (
+            InputStream input = clientSocket.getInputStream();
+            OutputStream output = clientSocket.getOutputStream();
+            Scanner scanner = new Scanner(input)
+        ) {
+            // Message de bienvenue
             output.write("220 Bienvenue sur le serveur FTP\r\n".getBytes());
-
+    
+            // Authentification de l'utilisateur
             if (authenticateUser(scanner, output)) {
-                while (true) {
+                boolean running = true;
+                while (running) {
                     String command = scanner.hasNextLine() ? scanner.nextLine() : "";
+    
+                    // **Afficher la commande reçue dans la console**
+                    System.out.println("Commande reçue : " + command);
+    
                     if (command.equalsIgnoreCase("QUIT")) {
                         output.write("221 Déconnexion en cours. Au revoir!\r\n".getBytes());
-                        break;
+                        running = false;
+
+                     // Commande SYST
+                } else if (command.equalsIgnoreCase("SYST")) {
+                    output.write("215 UNIX Type: L8\r\n".getBytes());
+
+                // Commande PWD
+                } else if (command.equalsIgnoreCase("PWD")) {
+                    output.write("257 \"/\" est le répertoire courant.\r\n".getBytes());
+
+                // Commande LIST
+                } else if (command.equalsIgnoreCase("LIST")) {
+                    output.write("150 Ouverture de la liste des fichiers.\r\n".getBytes());
+                    // Simuler une liste de fichiers
+                    output.write("-rw-r--r-- 1 user group 123 Jan 1 00:00 fichier1.txt\r\n".getBytes());
+                    output.write("drwxr-xr-x 1 user group 0 Jan 1 00:00 dossier1\r\n".getBytes());
+                    output.write("226 Liste envoyée.\r\n".getBytes());
+
+                // Commande CWD (simulé)
+                } else if (command.toUpperCase().startsWith("CWD")) {
+                    output.write("250 Répertoire changé (simulé).\r\n".getBytes());
+                    
+                    } else {
+                        output.write(("502 Commande non supportée : " + command + "\r\n").getBytes());
                     }
-                    output.write(("502 Commande non supportée : " + command + "\r\n").getBytes());
                 }
             }
         } catch (IOException e) {
@@ -55,6 +85,8 @@ public class FTPServer {
             }
         }
     }
+
+    
    // authontification 
     private static boolean authenticateUser(Scanner scanner, OutputStream output) throws IOException {
         String username = null;
