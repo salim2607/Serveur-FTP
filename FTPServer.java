@@ -66,14 +66,9 @@ public class FTPServer {
                         new Thread(() -> {
                             try (Socket dataConnection = dataSocket.accept()) {
                                 System.out.println("Data connection established on port: " + dataPort);
+                                // Connexion de données acceptée avec succès
                             } catch (IOException e) {
                                 System.err.println("Error handling data connection: " + e.getMessage());
-                            } finally {
-                                try {
-                                    dataSocket.close();
-                                } catch (IOException e) {
-                                    System.err.println("Error closing data socket: " + e.getMessage());
-                                }
                             }
                         }).start();
                     } else if (command.startsWith("RETR")) {
@@ -132,16 +127,22 @@ public class FTPServer {
 
                     } else if (command.equalsIgnoreCase("PWD")) {
                         sendResponse(output, "257 \"/\" est le répertoire courant.\r\n");
-
+                    
                     } else if (command.equalsIgnoreCase("LIST")) {
                         sendResponse(output, "150 Ouverture de la connexion de données pour la liste des fichiers.\r\n");
                         try (
                             Socket dataConnection = dataSocket.accept(); // Accepter la connexion de données
                             OutputStream dataOutput = dataConnection.getOutputStream()
                         ) {
-                            // Simuler une liste de fichiers
-                            dataOutput.write("-rw-r--r-- 1 user group 123 Jan 1 00:00 fichier1.txt\r\n".getBytes());
-                            dataOutput.write("drwxr-xr-x 1 user group 0 Jan 1 00:00 dossier1\r\n".getBytes());
+                            // liste de fichiers
+                            File dir = new File("."); // Liste des fichiers dans le répertoire courant
+                            for (File file : dir.listFiles()) {
+                                if (file.isDirectory()) {
+                                    dataOutput.write(("drwxr-xr-x 1 user group 0 Jan 1 00:00 " + file.getName() + "\r\n").getBytes());
+                                } else {
+                                    dataOutput.write(("-rw-r--r-- 1 user group " + file.length() + " Jan 1 00:00 " + file.getName() + "\r\n").getBytes());
+                                }
+                            }
                         } catch (IOException e) {
                             sendResponse(output, "425 Impossible d'ouvrir la connexion de données.\r\n");
                             return;
@@ -150,11 +151,6 @@ public class FTPServer {
 
                     } else if (command.toUpperCase().startsWith("CWD")) {
                         sendResponse(output, "250 Répertoire changé (simulé).\r\n");
-
-                    } else if (command.equalsIgnoreCase("TYPE I")) {
-                        // Réponse à la commande TYPE I (mode binaire)
-                        sendResponse(output, "200 Type set to I (Binary mode).\r\n");
-                        System.out.println("Commande TYPE I reçue : Mode binaire activé");
 
                     } else {
                         sendResponse(output, ("502 Commande non supportée : " + command + "\r\n"));
