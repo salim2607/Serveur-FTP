@@ -73,6 +73,8 @@ public class FTPServer {
                         handleLISTCommand(output);
                     } else if (command.startsWith("CWD")) {
                         handleCWDCommand(command, output);
+                    } else if ("TYPE I".equalsIgnoreCase(command)) {  // Ajout de la gestion de TYPE I
+                        sendResponse(output, "200 Type set to I (binary mode).\r\n");
                     } else {
                         sendResponse(output, "502 Commande non supportée : " + command + "\r\n");
                     }
