@@ -187,75 +187,50 @@ public class FTPServer {
     }
 
     private static void handleLISTCommand(OutputStream output) throws IOException {
-        try {
-            // Utiliser le répertoire courant mis à jour
-            File currentDirectory = new File(System.getProperty("user.dir"));
-            File[] files = currentDirectory.listFiles();
-    
-            if (files == null || files.length == 0) {
-                sendResponse(output, "150 Aucun fichier ou répertoire dans le répertoire courant.\r\n");
-                sendResponse(output, "226 Liste terminée.\r\n");
-                return;
-            }
-    
-            // Envoyer une réponse initiale pour indiquer que le transfert va commencer
-            sendResponse(output, "150 Ouverture de la connexion de données pour la liste des fichiers.\r\n");
-    
-            // Ouvrir un flux de sortie pour envoyer la liste via la connexion de données
-            try (Socket dataConnection = dataSocket.accept(); // Accepter la connexion de données
-                 OutputStream dataOutput = dataConnection.getOutputStream()) {
-                
-                // Envoi de la liste des fichiers
+        sendResponse(output, "150 Ouverture de la connexion de données pour la liste des fichiers.\r\n");
+        try (Socket dataConnection = dataSocket.accept();
+             OutputStream dataOutput = dataConnection.getOutputStream()) {
+
+            System.out.println("Connexion de données établie.");
+
+            File dir = new File(System.getProperty("user.dir")); // Répertoire courant
+            File[] files = dir.listFiles();
+            if (files != null) {
                 for (File file : files) {
-                    String fileInfo = (file.isDirectory() ? "Dossier " : "Fichier ") + file.getName() + "\r\n";
-                    dataOutput.write(fileInfo.getBytes());
+                    String fileDetails = file.isDirectory()
+                            ? "drwxr-xr-x 1 user group 0 Jan 1 00:00 " + file.getName() + "\r\n"
+                            : "-rw-r--r-- 1 user group " + file.length() + " Jan 1 00:00 " + file.getName() + "\r\n";
+                    dataOutput.write(fileDetails.getBytes());
                 }
-    
-            } catch (IOException e) {
-                sendResponse(output, "425 Impossible d'ouvrir la connexion de données.\r\n");
-                return;
+            } else {
+                System.out.println("Répertoire vide ou inaccessible.");
             }
-    
-            // Indiquer que la liste est terminée
-            sendResponse(output, "226 Liste terminée.\r\n");
-    
+
         } catch (IOException e) {
-            try {
-                sendResponse(output, "451 Erreur pendant l'envoi de la liste.\r\n");
-            } catch (IOException ioException) {
-                ioException.printStackTrace();
-            }
-        } finally {
-            // Fermer la connexion de données à la fin du transfert
-            try {
-                if (dataSocket != null && !dataSocket.isClosed()) {
-                    dataSocket.close();
-                    System.out.println("Connexion de données fermée après LIST.");
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            System.err.println("Erreur lors de la connexion de données : " + e.getMessage());
+            sendResponse(output, "425 Impossible d'ouvrir la connexion de données.\r\n");
         }
+        sendResponse(output, "226 Liste des fichiers envoyée avec succès.\r\n");
     }
-    
 
     private static void handleCWDCommand(String command, OutputStream output) throws IOException {
         String[] parts = command.split(" ");
         if (parts.length == 2) {
-            String path = parts[1];
-            File dir = new File(path);
+            String directory = parts[1];
+            File dir = new File(directory);
             if (dir.exists() && dir.isDirectory()) {
-                sendResponse(output, "250 Répertoire changé en " + path + ".\r\n");
+                System.setProperty("user.dir", dir.getAbsolutePath()); // Changement du répertoire courant
+                sendResponse(output, "250 Le répertoire a été changé avec succès : " + dir.getAbsolutePath() + "\r\n");
             } else {
-                sendResponse(output, "550 Répertoire non trouvé.\r\n");
+                sendResponse(output, "550 Le répertoire n'existe pas ou n'est pas accessible.\r\n");
             }
         } else {
-            sendResponse(output, "501 Commande invalide.\r\n");
+            sendResponse(output, "501 Syntax error in parameters or arguments.\r\n");
         }
     }
 
-    private static void sendResponse(OutputStream output, String message) throws IOException {
-        output.write(message.getBytes());
+    private static void sendResponse(OutputStream output, String response) throws IOException {
+        output.write(response.getBytes());
         output.flush();
     }
 
