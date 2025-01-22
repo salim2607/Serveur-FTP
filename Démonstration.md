@@ -10,7 +10,7 @@ Cette documentation présente une démonstration du fonctionnement d'un serveur 
 
 Lorsque l'utilisateur se connecte au serveur FTP, il reçoit un message d'accueil, puis il peut saisir son nom d'utilisateur.
 
-![Connexion initiale](./images/connexion_initiale.png)
+![Connexion initiale](Images/connexion_initiale.png)
 
 ### 2.2. Authentification
 
