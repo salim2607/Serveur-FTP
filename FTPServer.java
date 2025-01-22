@@ -11,29 +11,31 @@ public class FTPServer {
     private static int dataPort; // Port pour la connexion de données
 
     static {
-        users.put("miage", "car"); // Mode de pass car / user miage
+        // Utilisateurs et mots de passe par défaut
+        users.put("miage", "car");
     }
 
     public static void main(String[] args) {
-        int port = 2121; // Port pour la connexion de contrôle (fixe)
+        int controlPort = 2121; // Port pour la connexion de contrôle
 
         try {
-            // Initialisation de la socket pour la connexion de données avec un port dynamique
+            // Initialisation de la connexion de données avec un port dynamique
             dataSocket = new ServerSocket(0);
-            dataPort = dataSocket.getLocalPort(); // Récupération du port attribué
+            dataPort = dataSocket.getLocalPort();  // Port dynamique attribué
             System.out.println("Connexion de données démarrée sur le port : " + dataPort);
 
-            try (ServerSocket serverSocket = new ServerSocket(port)) {
-                System.out.println("Serveur FTP démarré sur le port : " + port);
+            try (ServerSocket serverSocket = new ServerSocket(controlPort)) {
+                // Démarrage du serveur FTP sur le port de contrôle
+                System.out.println("Serveur FTP démarré sur le port : " + controlPort);
                 while (true) {
                     Socket clientSocket = serverSocket.accept();
-                    // Client accepté, afficher son adresse
+                    // Acceptation d'un client et gestion de la connexion dans un thread séparé
                     System.out.println("Client connecté : " + clientSocket.getInetAddress());
                     new Thread(() -> handleClient(clientSocket)).start();
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Erreur lors de l'initialisation du serveur : " + e.getMessage());
         }
     }
 
@@ -43,151 +45,69 @@ public class FTPServer {
             OutputStream output = clientSocket.getOutputStream();
             Scanner scanner = new Scanner(input)
         ) {
-            // Message de bienvenue
-            output.write("220 Bienvenue sur le serveur FTP\r\n".getBytes());
+            // Envoi du message de bienvenue
+            sendResponse(output, "220 Bienvenue sur le serveur FTP\r\n");
 
             // Authentification de l'utilisateur
             if (authenticateUser(scanner, output)) {
                 boolean running = true;
                 while (running) {
+                    // Attente de la commande du client
                     String command = scanner.hasNextLine() ? scanner.nextLine() : "";
 
-                    // **Afficher la commande reçue dans la console**
                     System.out.println("Commande reçue : " + command);
 
-                    if (command.equalsIgnoreCase("QUIT")) {
-                        output.write("221 Déconnexion en cours. Au revoir!\r\n".getBytes());
+                    // Quitter la session si la commande est QUIT
+                    if ("QUIT".equalsIgnoreCase(command)) {
+                        sendResponse(output, "221 Déconnexion en cours. Au revoir!\r\n");
                         running = false;
-                    } else if (command.equalsIgnoreCase("EPSV")) {
-                        // Réponse à la commande EPSV
-                        sendResponse(output, "229 Entering Extended Passive Mode (|||" + dataPort + "|)\r\n");
-
-                        // Lancez un thread pour gérer la connexion de données
-                        new Thread(() -> {
-                            try (Socket dataConnection = dataSocket.accept()) {
-                                System.out.println("Data connection established on port: " + dataPort);
-                                // Connexion de données acceptée avec succès
-                            } catch (IOException e) {
-                                System.err.println("Error handling data connection: " + e.getMessage());
-                            }
-                        }).start();
+                    } else if ("EPSV".equalsIgnoreCase(command)) {
+                        handleEPSVCommand(output);
                     } else if (command.startsWith("RETR")) {
-                        // Réponse à la commande RETR
-                        String[] parts = command.split(" ");
-                        if (parts.length == 2) {
-                            String fileName = parts[1];
-                            File file = new File(fileName);
-
-                            if (file.exists() && file.isFile()) {
-                                // Envoi de la réponse 150
-                                sendResponse(output, "150 Opening data connection for " + fileName + " (" + file.length() + " bytes).\r\n");
-
-                                // Lancez un thread pour gérer la connexion de données et le transfert du fichier
-                                new Thread(() -> {
-                                    try (Socket dataConnection = dataSocket.accept(); // Accepter la connexion de données
-                                         FileInputStream fis = new FileInputStream(file);
-                                         OutputStream dataOut = dataConnection.getOutputStream()) {
-
-                                        System.out.println("Sending file: " + fileName);
-
-                                        byte[] buffer = new byte[4096];
-                                        int bytesRead;
-
-                                        // Lire et envoyer le fichier par la connexion de données
-                                        while ((bytesRead = fis.read(buffer)) != -1) {
-                                            dataOut.write(buffer, 0, bytesRead);
-                                        }
-
-                                        // Envoi de la réponse 226 après le transfert
-                                        sendResponse(output, "226 Transfer complete.\r\n");
-                                        System.out.println("File " + fileName + " sent successfully.");
-
-                                    } catch (IOException e) {
-                                        // En cas d'erreur pendant le transfert
-                                        try {
-                                            sendResponse(output, "451 Requested action aborted: local error in processing.\r\n");
-                                        } catch (IOException e1) {
-                                            e1.printStackTrace();
-                                        }
-                                        System.err.println("Error sending file: " + e.getMessage());
-                                    }
-                                }).start();
-                            } else {
-                                // Fichier non trouvé ou inaccessible
-                                sendResponse(output, "550 File not found or not accessible.\r\n");
-                                System.err.println("File not found: " + fileName);
-                            }
-                        } else {
-                            // Mauvaise syntaxe de la commande
-                            sendResponse(output, "501 Syntax error in parameters or arguments.\r\n");
-                            System.err.println("Invalid RETR command syntax.");
-                        }
-                    } else if (command.equalsIgnoreCase("SYST")) {
+                        handleRETRCommand(command, output);
+                    } else if ("SYST".equalsIgnoreCase(command)) {
                         sendResponse(output, "215 UNIX Type: L8\r\n");
-
-                    } else if (command.equalsIgnoreCase("PWD")) {
+                    } else if ("PWD".equalsIgnoreCase(command)) {
                         sendResponse(output, "257 \"/\" est le répertoire courant.\r\n");
-                    
-                    } else if (command.equalsIgnoreCase("LIST")) {
-                        sendResponse(output, "150 Ouverture de la connexion de données pour la liste des fichiers.\r\n");
-                        try (
-                            Socket dataConnection = dataSocket.accept(); // Accepter la connexion de données
-                            OutputStream dataOutput = dataConnection.getOutputStream()
-                        ) {
-                            // liste de fichiers
-                            File dir = new File("."); // Liste des fichiers dans le répertoire courant
-                            for (File file : dir.listFiles()) {
-                                if (file.isDirectory()) {
-                                    dataOutput.write(("drwxr-xr-x 1 user group 0 Jan 1 00:00 " + file.getName() + "\r\n").getBytes());
-                                } else {
-                                    dataOutput.write(("-rw-r--r-- 1 user group " + file.length() + " Jan 1 00:00 " + file.getName() + "\r\n").getBytes());
-                                }
-                            }
-                        } catch (IOException e) {
-                            sendResponse(output, "425 Impossible d'ouvrir la connexion de données.\r\n");
-                            return;
-                        }
-                        sendResponse(output, "226 Liste des fichiers envoyée avec succès.\r\n");
-
-                    } else if (command.toUpperCase().startsWith("CWD")) {
-                        sendResponse(output, "250 Répertoire changé (simulé).\r\n");
-
+                    } else if ("LIST".equalsIgnoreCase(command)) {
+                        handleLISTCommand(output);
+                    } else if (command.startsWith("CWD")) {
+                        handleCWDCommand(command, output);
                     } else {
-                        sendResponse(output, ("502 Commande non supportée : " + command + "\r\n"));
+                        sendResponse(output, "502 Commande non supportée : " + command + "\r\n");
                     }
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Erreur lors du traitement du client : " + e.getMessage());
         } finally {
             try {
                 clientSocket.close();
                 System.out.println("Client déconnecté");
             } catch (IOException e) {
-                e.printStackTrace();
+                System.err.println("Erreur lors de la fermeture de la connexion client : " + e.getMessage());
             }
         }
     }
 
-    // Authentification
     private static boolean authenticateUser(Scanner scanner, OutputStream output) throws IOException {
         String username = null;
         while (true) {
             String input = receiveMessage(scanner);
 
-            if (input.toUpperCase().startsWith("USER")) {
-                username = input.substring(5).trim(); // Extraire le nom d'utilisateur après "USER "
+            if (input.startsWith("USER")) {
+                username = input.substring(5).trim();
                 sendResponse(output, "331 Nom d'utilisateur accepté. Veuillez entrer le mot de passe.\r\n");
-            } else if (input.toUpperCase().startsWith("PASS")) {
+            } else if (input.startsWith("PASS")) {
                 if (username == null) {
                     sendResponse(output, "503 Mauvaise séquence de commande. Veuillez d'abord envoyer USER.\r\n");
                 } else {
-                    String password = input.substring(5).trim(); // Extraire le mot de passe après "PASS "
+                    String password = input.substring(5).trim();
                     if (users.containsKey(username) && users.get(username).equals(password)) {
                         sendResponse(output, "230 Authentification réussie. Bienvenue !\r\n");
                         return true;
                     } else {
-                        sendResponse(output, "530 Nom d'utilisateur ou mot de passe incorrect. Veuillez réessayer.\r\n");
+                        sendResponse(output, "530 Nom d'utilisateur ou mot de passe incorrect.\r\n");
                     }
                 }
             } else {
@@ -196,12 +116,123 @@ public class FTPServer {
         }
     }
 
-    private static String receiveMessage(Scanner scanner) {
-        return scanner.hasNextLine() ? scanner.nextLine() : "";
+    private static void handleEPSVCommand(OutputStream output) throws IOException {
+        // Récupérer un port dynamique pour la connexion de données (avec la plage de ports)
+        try {
+            dataPort = getAvailablePort();
+            dataSocket = new ServerSocket(dataPort); // Créer un serveur pour la connexion de données
+
+            sendResponse(output, "229 Entering Extended Passive Mode (|||" + dataPort + "|)\r\n");
+            new Thread(() -> {
+                try (Socket dataConnection = dataSocket.accept()) {
+                    System.out.println("Connexion de données établie sur le port : " + dataPort);
+                } catch (IOException e) {
+                    System.err.println("Erreur lors de la gestion de la connexion de données : " + e.getMessage());
+                }
+            }).start();
+        } catch (IOException e) {
+            System.err.println("Erreur lors de la gestion de la connexion de données : " + e.getMessage());
+            sendResponse(output, "425 Impossible d'établir la connexion de données.\r\n");
+        }
     }
 
-    // Méthode d'envoi de réponse
-    private static void sendResponse(OutputStream output, String message) throws IOException {
-        output.write(message.getBytes());
+    private static int getAvailablePort() throws IOException {
+        int startPort = 30000;
+        int endPort = 30100;
+        for (int port = startPort; port <= endPort; port++) {
+            try (ServerSocket testSocket = new ServerSocket(port)) {
+                return port; // Si le port est disponible, on le retourne
+            } catch (IOException e) {
+                // Si le port est occupé, essayer le suivant
+            }
+        }
+        throw new IOException("Aucun port disponible dans la plage définie.");
+    }
+
+    private static void handleRETRCommand(String command, OutputStream output) throws IOException {
+        String[] parts = command.split(" ");
+        if (parts.length == 2) {
+            String fileName = parts[1];
+            File file = new File(fileName);
+
+            if (file.exists() && file.isFile()) {
+                sendResponse(output, "150 Opening data connection for " + fileName + " (" + file.length() + " bytes).\r\n");
+                new Thread(() -> {
+                    try (Socket dataConnection = dataSocket.accept();
+                         FileInputStream fis = new FileInputStream(file);
+                         OutputStream dataOut = dataConnection.getOutputStream()) {
+
+                        byte[] buffer = new byte[4096];
+                        int bytesRead;
+
+                        while ((bytesRead = fis.read(buffer)) != -1) {
+                            dataOut.write(buffer, 0, bytesRead);
+                        }
+
+                        sendResponse(output, "226 Transfer complete.\r\n");
+                        System.out.println("Fichier " + fileName + " envoyé avec succès.");
+
+                    } catch (IOException e) {
+                        System.err.println("Erreur d'envoi du fichier : " + e.getMessage());
+                    }
+                }).start();
+            } else {
+                sendResponse(output, "550 File not found or not accessible.\r\n");
+            }
+        } else {
+            sendResponse(output, "501 Syntax error in parameters or arguments.\r\n");
+        }
+    }
+
+    private static void handleLISTCommand(OutputStream output) throws IOException {
+        sendResponse(output, "150 Ouverture de la connexion de données pour la liste des fichiers.\r\n");
+        try (Socket dataConnection = dataSocket.accept();
+             OutputStream dataOutput = dataConnection.getOutputStream()) {
+
+            System.out.println("Connexion de données établie.");
+
+            File dir = new File(System.getProperty("user.dir")); // Répertoire courant
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    String fileDetails = file.isDirectory()
+                            ? "drwxr-xr-x 1 user group 0 Jan 1 00:00 " + file.getName() + "\r\n"
+                            : "-rw-r--r-- 1 user group " + file.length() + " Jan 1 00:00 " + file.getName() + "\r\n";
+                    dataOutput.write(fileDetails.getBytes());
+                }
+            } else {
+                System.out.println("Répertoire vide ou inaccessible.");
+            }
+
+        } catch (IOException e) {
+            System.err.println("Erreur lors de la connexion de données : " + e.getMessage());
+            sendResponse(output, "425 Impossible d'ouvrir la connexion de données.\r\n");
+        }
+        sendResponse(output, "226 Liste des fichiers envoyée avec succès.\r\n");
+    }
+
+    private static void handleCWDCommand(String command, OutputStream output) throws IOException {
+        String[] parts = command.split(" ");
+        if (parts.length == 2) {
+            String directory = parts[1];
+            File dir = new File(directory);
+            if (dir.exists() && dir.isDirectory()) {
+                System.setProperty("user.dir", dir.getAbsolutePath()); // Changement du répertoire courant
+                sendResponse(output, "250 Le répertoire a été changé avec succès : " + dir.getAbsolutePath() + "\r\n");
+            } else {
+                sendResponse(output, "550 Le répertoire n'existe pas ou n'est pas accessible.\r\n");
+            }
+        } else {
+            sendResponse(output, "501 Syntax error in parameters or arguments.\r\n");
+        }
+    }
+
+    private static void sendResponse(OutputStream output, String response) throws IOException {
+        output.write(response.getBytes());
+        output.flush();
+    }
+
+    private static String receiveMessage(Scanner scanner) {
+        return scanner.hasNextLine() ? scanner.nextLine() : "";
     }
 }
